@@ -61,40 +61,46 @@ def add_depfile_arg(parser):
 
 
 def write_depfile(depfile_path, first_gn_output, inputs=None):
-  """Writes a ninja depfile.
+    """Writes a ninja depfile.
 
-  See notes about how to use depfiles in //build/docs/writing_gn_templates.md.
+    See notes about how to use depfiles in //build/docs/writing_gn_templates.md.
 
-  Args:
-    depfile_path: Path to file to write.
-    first_gn_output: Path of first entry in action's outputs.
-    inputs: List of inputs to add to depfile.
-  """
-  assert depfile_path != first_gn_output  # http://crbug.com/646165
-  assert not isinstance(inputs, str)  # Easy mistake to make
+    Args:
+        depfile_path: Path to file to write.
+        first_gn_output: Path of the first entry in the action's outputs.
+        inputs: List of inputs to add to the depfile.
+    """
+    assert depfile_path != first_gn_output  # http://crbug.com/646165
+    assert not isinstance(inputs, str)  # Easy mistake to make
 
-  def _process_path(path):
-    assert not os.path.isabs(path), f'Found abs path in depfile: {path}'
-    if os.path.sep != posixpath.sep:
-      path = str(pathlib.Path(path).as_posix())
-    assert '\\' not in path, f'Found \\ in depfile: {path}'
-    return path.replace(' ', '\\ ')
+    def _process_path(path):
+        # Ensure that the path is relative to the directory containing the depfile.
+        assert not os.path.isabs(path), f'Found abs path in depfile: {path}'
+        if os.path.sep != posixpath.sep:
+            path = str(pathlib.Path(path).as_posix())
+        assert '\\' not in path, f'Found \\ in depfile: {path}'
+        return path.replace(' ', '\\ ')
 
-  sb = []
-  sb.append(_process_path(first_gn_output))
-  if inputs:
-    # Sort and uniquify to ensure file is hermetic.
-    # One path per line to keep it human readable.
-    sb.append(': \\\n ')
-    sb.append(' \\\n '.join(sorted(_process_path(p) for p in set(inputs))))
-  else:
-    sb.append(': ')
-  sb.append('\n')
+    rel_first_gn_output = os.path.relpath(first_gn_output, os.path.dirname(depfile_path))
 
-  path = pathlib.Path(depfile_path)
-  path.parent.mkdir(parents=True, exist_ok=True)
-  path.write_text(''.join(sb))
+    sb = []
+    sb.append(_process_path(rel_first_gn_output))
+    if inputs:
+        # Exclude 'java.sources' from the depfile inputs.
+        inputs = [input_path for input_path in inputs if not input_path.endswith('java.sources')]
+        # Sort and uniquify to ensure the file is hermetic.
+        # Convert paths to relative paths.
+        relative_inputs = [_process_path(p) for p in set(inputs)]
+        # One path per line to keep it human-readable.
+        sb.append(': \\\n ')
+        sb.append(' \\\n '.join(sorted(relative_inputs)))
+    else:
+        sb.append(': ')
+    sb.append('\n')
 
+    path = pathlib.Path(depfile_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(''.join(sb))
 
 def parse_gn_list(value):
   """Converts a "GN-list" command-line parameter into a list.
